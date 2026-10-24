@@ -16,23 +16,7 @@ jobs:
           node-version: "20"
       - name: Install dependencies
         run: npm install
-      - name: Download compact public ONNX model into app assets
-        run: |
-          python -m pip install --upgrade huggingface_hub
-          python - <<'PY'
-          from huggingface_hub import snapshot_download
-          snapshot_download(
-              repo_id="onnx-community/SmolLM2-135M-Instruct-ONNX",
-              local_dir="public/models/onnx-community/SmolLM2-135M-Instruct-ONNX",
-              allow_patterns=[
-                  "config.json", "generation_config.json", "tokenizer.json",
-                  "tokenizer_config.json", "special_tokens_map.json",
-                  "chat_template.jinja", "vocab.json", "merges.txt",
-                  "onnx/model_q4.onnx"
-              ]
-          )
-          PY
-      - name: Build web app with bundled model
+      - name: Build web app without bundled AI model
         run: npm run build
       - uses: actions/setup-java@v4
         with:
