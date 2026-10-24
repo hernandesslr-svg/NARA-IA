@@ -1,85 +1,79 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { pipeline, env } from "@huggingface/transformers";
 import "./style.css";
 
-env.allowLocalModels = true;
-env.allowRemoteModels = false;
-env.localModelPath = "./models/";
-env.useBrowserCache = true;
+const API_URL = (import.meta.env.VITE_NARA_API_URL || "").trim();
+const STORAGE_KEY = "nara-chat-history-v1";
+
+function loadMessages() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+    if (Array.isArray(saved) && saved.length) return saved;
+  } catch {}
+  return [{ role: "assistant", content: "Oi! Eu sou a Nara. Pode conversar comigo. Minhas respostas são processadas online, sem baixar um modelo de IA no seu celular." }];
+}
 
 function App() {
-  const [messages, setMessages] = useState([{ role: "assistant", content: "Oi! Eu sou a Nara. Meu modelo vem incluído neste APK, então não preciso baixar o modelo ao abrir o aplicativo." }]);
+  const [messages, setMessages] = useState(loadMessages);
   const [input, setInput] = useState("");
-  const [status, setStatus] = useState("Iniciando IA local…");
-  const [busy, setBusy] = useState(true);
-  const engine = useRef(null);
-  const started = useRef(false);
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState("Pronta para conversar");
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    if (started.current) return;
-    started.current = true;
-    let cancelled = false;
-    (async () => {
-      try {
-        setStatus("Carregando modelo incluído no APK…");
-        const model = await pipeline("text-generation", "onnx-community/SmolLM2-135M-Instruct-ONNX", {
-          dtype: "q4",
-          device: "wasm",
-          progress_callback: p => {
-            if (cancelled) return;
-            if (p.status === "progress" && p.progress != null) setStatus("Preparando arquivos locais: " + Math.round(p.progress) + "%");
-            else if (p.status) setStatus("Inicializando IA: " + p.status);
-          }
-        });
-        if (cancelled) return;
-        engine.current = model;
-        setStatus("Nara pronta · funciona sem baixar o modelo");
-        setMessages(m => [...m, { role: "assistant", content: "Pronto! Meu modelo já veio instalado junto com o aplicativo. Pode conversar comigo." }]);
-      } catch (err) {
-        if (cancelled) return;
-        setStatus("Não foi possível iniciar a IA incluída");
-        setMessages(m => [...m, { role: "assistant", content: "Não consegui abrir o modelo local incluído neste APK. Não vou tentar baixar outro modelo pela internet. Detalhe técnico: " + (err?.message || String(err)) }]);
-      } finally {
-        if (!cancelled) setBusy(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(messages.slice(-100))); } catch {}
+  }, [messages]);
 
   async function send(e) {
     e.preventDefault();
-    const q = input.trim();
-    if (!q || busy) return;
-    setInput("");
-    const next = [...messages, { role: "user", content: q }];
-    setMessages(next);
-    if (!engine.current) {
-      setMessages(m => [...m, { role: "assistant", content: "A IA local ainda não terminou de iniciar. Confira a mensagem de status acima." }]);
+    const question = input.trim();
+    if (!question || busy) return;
+
+    if (!API_URL) {
+      setError("A conexão com o serviço de IA ainda não foi configurada. O aplicativo não vai baixar nenhum modelo. É preciso conectar um servidor de IA para começar a responder.");
+      setStatus("Serviço de IA não conectado");
       return;
     }
+
+    setInput("");
+    setError("");
+    const next = [...messages, { role: "user", content: question }];
+    setMessages(next);
     setBusy(true);
     setStatus("Nara está pensando…");
+
     try {
-      const prompt = "Você é Nara, uma assistente pessoal que responde em português brasileiro. Seja útil e clara.\n\n" +
-        next.slice(-8).map(m => (m.role === "user" ? "Usuário: " : "Nara: ") + m.content).join("\n") +
-        "\nNara:";
-      const result = await engine.current(prompt, { max_new_tokens: 180, do_sample: false, return_full_text: false });
-      const answer = Array.isArray(result) ? result[0]?.generated_text : result?.generated_text;
-      setMessages(m => [...m, { role: "assistant", content: (answer || "").trim() || "Não consegui gerar uma resposta. Tente perguntar de outro jeito." }]);
-      setStatus("Nara pronta · modo local");
+      const response = await fetch(API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: next.slice(-20).map(({ role, content }) => ({ role, content })),
+          message: question
+        })
+      });
+      if (!response.ok) throw new Error("O serviço respondeu com erro " + response.status + ".");
+      const data = await response.json();
+      const answer = data.reply ?? data.response ?? data.message?.content ?? data.choices?.[0]?.message?.content;
+      if (typeof answer !== "string" || !answer.trim()) throw new Error("O serviço não retornou uma resposta válida.");
+      setMessages(current => [...current, { role: "assistant", content: answer.trim() }]);
+      setStatus("Pronta para conversar");
     } catch (err) {
-      setMessages(m => [...m, { role: "assistant", content: "Erro ao gerar resposta: " + (err?.message || String(err)) }]);
-      setStatus("Erro ao responder");
-    } finally { setBusy(false); }
+      setMessages(current => [...current, { role: "assistant", content: "Não consegui conectar ao serviço de IA agora. Confira sua conexão e tente novamente." }]);
+      setStatus("Falha na conexão");
+      setError(err?.message || "Erro de conexão.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   return <main>
-    <header><div className="logo">N</div><div><h1>Nara</h1><p>Sua IA pessoal · modelo incluído no APK</p></div></header>
-    <section className="status"><span>{status}</span><span className="status-mark">{engine.current ? "●" : "○"}</span></section>
+    <header><div className="logo">N</div><div><h1>Nara</h1><p>Sua assistente de IA</p></div></header>
+    <section className="status"><span>{status}</span><span className="status-mark">{busy ? "…" : "●"}</span></section>
     <section className="chat">{messages.map((m, i) => <article className={m.role} key={i}><b>{m.role === "user" ? "Você" : "Nara"}</b><p>{m.content}</p></article>)}</section>
-    <form onSubmit={send}><input value={input} onChange={e => setInput(e.target.value)} placeholder={busy ? "A Nara está iniciando…" : "Converse com a Nara…"} disabled={busy || !engine.current} /><button disabled={busy || !engine.current || !input.trim()}>Enviar</button></form>
-    <small className="note">O modelo está incluído no APK. A primeira inicialização pode levar um pouco; não é necessário baixar o modelo depois da instalação.</small>
+    {error && <p className="error" role="status">{error}</p>}
+    <form onSubmit={send}><input value={input} onChange={e => setInput(e.target.value)} placeholder="Converse com a Nara…" disabled={busy} /><button disabled={busy || !input.trim()}>{busy ? "Enviando…" : "Enviar"}</button></form>
+    <small className="note">Sem download de modelos no celular. As respostas precisam de conexão com a internet e de um serviço de IA configurado.</small>
   </main>;
 }
+
 createRoot(document.getElementById("root")).render(<App />);
