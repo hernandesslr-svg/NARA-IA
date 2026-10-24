@@ -1,0 +1,9 @@
+{
+  "appId": "br.com.naraia.app",
+  "appName": "Nara IA",
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "android": {
+    "backgroundColor": "#101014"
+  }
+}
