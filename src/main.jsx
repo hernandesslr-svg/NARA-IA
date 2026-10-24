@@ -23,7 +23,7 @@ function App() {
     (async () => {
       try {
         setStatus("Carregando modelo incluído no APK…");
-        const model = await pipeline("text-generation", "onnx-community/SmolLM2-135M-Instruct", {
+        const model = await pipeline("text-generation", "onnx-community/SmolLM2-135M-Instruct-ONNX", {
           dtype: "q4",
           device: "wasm",
           progress_callback: p => {
