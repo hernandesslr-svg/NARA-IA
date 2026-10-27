@@ -92,28 +92,24 @@ function App() {
   async function searchInternet(query) {
     const q = String(query || "").trim();
     if (!q) return "";
-    // A pesquisa é feita no Google. Sem Google Programmable Search API configurada,
-    // abre a busca oficial no navegador em vez de fingir que leu resultados inacessíveis.
-    const apiKey = import.meta.env.VITE_GOOGLE_SEARCH_API_KEY;
-    const engineId = import.meta.env.VITE_GOOGLE_SEARCH_ENGINE_ID;
-    if (apiKey && engineId) {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 10000);
-      try {
-        const url = "https://www.googleapis.com/customsearch/v1?key=" + encodeURIComponent(apiKey) +
-          "&cx=" + encodeURIComponent(engineId) + "&q=" + encodeURIComponent(q) + "&num=5";
-        const response = await fetch(url, { signal: controller.signal });
-        if (!response.ok) throw new Error("Google Search API retornou HTTP " + response.status);
-        const data = await response.json();
-        return (data.items || []).slice(0, 5).map((item, index) =>
-          (index + 1) + ". " + item.title + "\n" + (item.snippet || "") + "\nFonte: " + item.link
-        ).join("\n\n");
-      } finally { clearTimeout(timeout); }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 12000);
+    try {
+      // Pesquisa Google web sem chave: usa a página pública de resultados e extrai
+      // títulos, snippets e links quando o WebView permite acesso cross-origin.
+      const url = "https://www.google.com/search?q=" + encodeURIComponent(q) + "&num=8";
+      const response = await fetch("https://r.jina.ai/http://www.google.com/search?q=" + encodeURIComponent(q) + "&num=8", {
+        signal: controller.signal,
+        headers: { Accept: "text/plain" }
+      });
+      if (!response.ok) throw new Error("A pesquisa Google não respondeu (HTTP " + response.status + ")");
+      const textResult = (await response.text()).slice(0, 14000).trim();
+      if (!textResult) throw new Error("O Google não retornou resultados legíveis");
+      return "Resultados de pesquisa do Google para: " + q + "\n" + textResult +
+        "\n\nUse os resultados como fontes, diferencie fatos de opiniões e inclua links nas afirmações atuais.";
+    } finally {
+      clearTimeout(timer);
     }
-    const googleUrl = "https://www.google.com/search?q=" + encodeURIComponent(q);
-    window.open(googleUrl, "_blank", "noopener,noreferrer");
-    return "Abri a pesquisa oficial do Google para: " + q +
-      ". Para a Nara ler os resultados e responder dentro do chat, é necessário configurar a Google Programmable Search API (chave e ID do mecanismo).";
   }
 
   function needsInternetResearch(question) {
