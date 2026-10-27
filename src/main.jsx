@@ -67,15 +67,15 @@ function App() {
     try {
       const generator = await getLocalGenerator();
       const prompt = [
-        { role: "system", content: "Você é Nara, uma assistente útil, clara e amigável. Responda em português brasileiro por padrão. Se não souber, diga que não sabe; não invente fatos." },
-        ...next.slice(-12).map(({ role, content }) => ({ role, content }))
-      ];
+        "<|im_start|>system\\nVocê é Nara, uma assistente útil, clara e amigável. Responda em português brasileiro por padrão. Se não souber, diga que não sabe; não invente fatos.<|im_end|>",
+        ...next.slice(-12).map(({ role, content }) => "<|im_start|>" + role + "\\n" + content + "<|im_end|>"),
+        "<|im_start|>assistant\\n"
+      ].join("\\n");
       const result = await generator(prompt, {
         max_new_tokens: 180,
         do_sample: true,
         temperature: 0.7,
-        repetition_penalty: 1.1,
-        chat_template: "{% for message in messages %}{{ '<|im_start|>' + message['role'] + '\\n' + message['content'] + '<|im_end|>' + '\\n' }}{% endfor %}{% if add_generation_prompt %}{{ '<|im_start|>assistant\\n' }}{% endif %}"
+        repetition_penalty: 1.1
       });
       const generated = result?.[0]?.generated_text;
       const answer = Array.isArray(generated)
