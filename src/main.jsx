@@ -69,7 +69,7 @@ function App() {
   function findCoreAnswer(question) {
     const normalized = normalizeCoreText(question);
     if (!normalized) return null;
-    const lessons = TRAINED_CORE?.lessons || [];
+    const lessons = (TRAINED_CORE?.lessons || []).filter(item => item && typeof item.user === "string" && typeof item.assistant === "string");
     const exact = lessons.find(item => normalizeCoreText(item.user) === normalized);
     if (exact?.assistant?.trim()) return exact.assistant.trim();
 
@@ -106,7 +106,8 @@ function App() {
         setMessages(current => [...current, { role: "assistant", content: learned }]);
         return;
       }
-      const nucleusPrompt = buildSystemPrompt("livre", TRAINED_CORE, question);
+      const safeCore = { ...TRAINED_CORE, lessons: (TRAINED_CORE?.lessons || []).filter(item => item && typeof item.user === "string" && typeof item.assistant === "string") };
+      const nucleusPrompt = buildSystemPrompt("livre", safeCore, question);
       const timeout = new Promise((_, reject) => {
         timer = setTimeout(() => reject(new Error("Tempo esgotado durante " + stage + ".")), 25000);
       });
