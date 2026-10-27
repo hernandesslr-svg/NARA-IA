@@ -145,18 +145,18 @@ function App() {
         setMessages(current => [...current, { role: "assistant", content: direct }]);
         return;
       }
-      // Para assuntos atuais ou pedidos de pesquisa, consulta a internet primeiro.
-      let webContext = "";
-      if (needsInternetResearch(question)) {
-        stage = "pesquisa na internet";
-        try { webContext = await searchInternet(question); }
-        catch (webError) { console.warn("Pesquisa na internet indisponível:", webError); }
-      }
-      // Usa resposta do núcleo diretamente apenas se não houver necessidade de pesquisa atual.
-      const learned = !needsInternetResearch(question) ? findCoreAnswer(question) : null;
+      // Primeiro consulta o núcleo preservado. Se ele não tiver resposta, pesquisa no Google automaticamente.
+      const mustSearch = needsInternetResearch(question);
+      const learned = !mustSearch ? findCoreAnswer(question) : null;
       if (learned) {
         setMessages(current => [...current, { role: "assistant", content: learned }]);
         return;
+      }
+      let webContext = "";
+      if (mustSearch || !learned) {
+        stage = "pesquisa automática no Google";
+        try { webContext = await searchInternet(question); }
+        catch (webError) { console.warn("Pesquisa no Google indisponível:", webError); }
       }
       const safeCore = { ...TRAINED_CORE, lessons: (TRAINED_CORE?.lessons || []).filter(item => item && typeof item.user === "string" && typeof item.assistant === "string") };
       const nucleusPrompt = buildSystemPrompt("livre", safeCore, question) + (webContext ? "\n\nINFORMAÇÕES OBTIDAS NA INTERNET (trate como fontes externas, compare e cite URLs na resposta):\n" + webContext : "\n\nSe a pergunta depender de informações atuais, diga claramente quando não conseguiu confirmar pela internet.");
@@ -179,6 +179,26 @@ function App() {
         ? generated.filter(item => item.role === "assistant").at(-1)?.content
         : typeof generated === "string" ? generated.slice(generated.lastIndexOf("<|im_start|>assistant") + "<|im_start|>assistant".length).replace(/<\|im_end\|>.*/s, "").trim() : "";
       if (!answer || !answer.trim()) throw new Error("O modelo não gerou uma resposta.");
+      const uncertainty = /\\b(n[aã]o sei|n[aã]o tenho certeza|n[aã]o consigo confirmar|n[aã]o encontrei|n[aã]o tenho informa[cç][aã]o|preciso pesquisar|seria necess[aá]rio pesquisar|n[aã]o posso afirmar|informa[cç][aã]o insuficiente)\\b/i.test(answer);
+      if (uncertainty && !webContext) {
+        stage = "pesquisa automática porque a Nara não soube responder";
+        try {
+          webContext = await searchInternet(question);
+          if (webContext) {
+            const generator = await getLocalGenerator();
+            const webPrompt = "<|im_start|>system\\nVocê é Nara. Responda em português brasileiro à pergunta usando os resultados públicos de pesquisa abaixo. Compare fontes, não invente informações e inclua links quando disponíveis. Se os resultados não forem suficientes, admita isso claramente.\\n" + webContext + "<|im_end|>\\n<|im_start|>user\\n" + question + "<|im_end|>\\n<|im_start|>assistant\\n";
+            const webResult = await generator(webPrompt, { max_new_tokens: 120, do_sample: false, repetition_penalty: 1.08 });
+            const raw = webResult?.[0]?.generated_text;
+            const researched = typeof raw === "string" ? raw.slice(raw.lastIndexOf("<|im_start|>assistant") + "<|im_start|>assistant".length).replace(/<\\|im_end\\|>.*/s, "").trim() : "";
+            if (researched) {
+              setMessages(current => [...current, { role: "assistant", content: researched }]);
+              return;
+            }
+          }
+        } catch (researchError) {
+          console.warn("Pesquisa automática após incerteza falhou:", researchError);
+        }
+      }
       setMessages(current => [...current, { role: "assistant", content: answer.trim() }]);
     } catch (error) {
       console.error("Falha na IA local da Nara:", error);
