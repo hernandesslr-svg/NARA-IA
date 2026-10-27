@@ -84,7 +84,7 @@ function App() {
     <header className="topbar">
       <button className="icon-button menu-button" onClick={() => setDrawer(true)} aria-label="Abrir menu"><Icon name="menu"/></button>
       <h1>Nara</h1>
-      <button className="icon-button more-button" onClick={() => openPanel("settings")} aria-label="Mais opções"><Icon name="settings"/></button>
+      <button className="icon-button more-button" onClick={() => openPanel("settings")} aria-label="Mais opções"><Icon name="more"/></button>
     </header>
 
     {panel === "chat" && <>
