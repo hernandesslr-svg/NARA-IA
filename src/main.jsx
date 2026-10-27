@@ -92,24 +92,30 @@ function App() {
   async function searchInternet(query) {
     const q = String(query || "").trim();
     if (!q) return "";
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 12000);
-    try {
-      // Pesquisa Google web sem chave: usa a página pública de resultados e extrai
-      // títulos, snippets e links quando o WebView permite acesso cross-origin.
-      const url = "https://www.google.com/search?q=" + encodeURIComponent(q) + "&num=8";
-      const response = await fetch("https://r.jina.ai/http://www.google.com/search?q=" + encodeURIComponent(q) + "&num=8", {
-        signal: controller.signal,
-        headers: { Accept: "text/plain" }
-      });
-      if (!response.ok) throw new Error("A pesquisa Google não respondeu (HTTP " + response.status + ")");
-      const textResult = (await response.text()).slice(0, 14000).trim();
-      if (!textResult) throw new Error("O Google não retornou resultados legíveis");
-      return "Resultados de pesquisa do Google para: " + q + "\n" + textResult +
-        "\n\nUse os resultados como fontes, diferencie fatos de opiniões e inclua links nas afirmações atuais.";
-    } finally {
-      clearTimeout(timer);
+    const encoded = encodeURIComponent(q);
+    // Tenta mais de uma forma pública de leitura dos resultados do Google, sem chave.
+    const urls = [
+      "https://r.jina.ai/http://www.google.com/search?q=" + encoded + "&num=8",
+      "https://r.jina.ai/https://www.google.com/search?q=" + encoded + "&num=8"
+    ];
+    let lastError;
+    for (const url of urls) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 15000);
+      try {
+        const response = await fetch(url, { signal: controller.signal, headers: { Accept: "text/plain" } });
+        if (!response.ok) throw new Error("HTTP " + response.status);
+        const resultText = (await response.text()).slice(0, 18000).trim();
+        if (resultText.length < 120) throw new Error("Resposta de pesquisa muito curta");
+        return "RESULTADOS DO GOOGLE PARA: " + q + "\n" + resultText +
+          "\n\nResponda à pergunta do usuário usando estes resultados. Extraia a resposta concreta, compare informações e preserve URLs úteis. Não responda apenas que não sabe.";
+      } catch (error) {
+        lastError = error;
+      } finally {
+        clearTimeout(timer);
+      }
     }
+    throw new Error("Não foi possível acessar a pesquisa pública do Google: " + String(lastError?.message || lastError || "falha de rede"));
   }
 
   function simpleAnswer(question) {
@@ -138,6 +144,7 @@ function App() {
     setInput("");
     setBusy(true);
     let stage = "carregamento do modelo";
+    let webContext = "";
     let timer;
     try {
       const direct = simpleAnswer(question);
@@ -152,7 +159,7 @@ function App() {
         setMessages(current => [...current, { role: "assistant", content: learned }]);
         return;
       }
-      let webContext = "";
+      webContext = "";
       if (mustSearch || !learned) {
         stage = "pesquisa automática no Google";
         try { webContext = await searchInternet(question); }
@@ -204,21 +211,26 @@ function App() {
       console.error("Falha na IA local da Nara:", error);
       let fallback = "";
       try {
-        stage = "pesquisa de fallback no Google";
-        const webContext = await searchInternet(question);
+        stage = "pesquisa automática no Google";
+        if (!webContext) webContext = await searchInternet(question);
         if (webContext) {
-          const generator = await getLocalGenerator();
-          const prompt = "<|im_start|>system\\nResponda em português brasileiro usando os resultados públicos de pesquisa abaixo. Seja direto, não invente dados e inclua URLs quando disponíveis.\\n" + webContext + "<|im_end|>\\n<|im_start|>user\\n" + question + "<|im_end|>\\n<|im_start|>assistant\\n";
-          const result = await generator(prompt, { max_new_tokens: 120, do_sample: false });
-          const generated = result?.[0]?.generated_text;
-          fallback = typeof generated === "string" ? generated.slice(generated.lastIndexOf("<|im_start|>assistant") + "<|im_start|>assistant".length).replace(/<\\|im_end\\|>.*/s, "").trim() : "";
+          try {
+            const generator = await getLocalGenerator();
+            const prompt = "<|im_start|>system\\nVocê é Nara. Responda diretamente em português brasileiro usando os resultados do Google abaixo. Extraia a resposta concreta, cite URLs quando disponíveis e não diga apenas que não sabe.\\n" + webContext + "<|im_end|>\\n<|im_start|>user\\n" + question + "<|im_end|>\\n<|im_start|>assistant\\n";
+            const result = await generator(prompt, { max_new_tokens: 140, do_sample: false });
+            const generated = result?.[0]?.generated_text;
+            fallback = typeof generated === "string" ? generated.slice(generated.lastIndexOf("<|im_start|>assistant") + "<|im_start|>assistant".length).replace(/<\\|im_end\\|>.*/s, "").trim() : "";
+          } catch (modelError) {
+            // O resultado pesquisado continua útil mesmo quando o modelo local falha.
+            fallback = webContext;
+          }
         }
       } catch (fallbackError) {
-        console.warn("Fallback de pesquisa também falhou:", fallbackError);
+        console.warn("Pesquisa automática no Google falhou:", fallbackError);
       }
       setMessages(current => [...current, {
         role: "assistant",
-        content: fallback || "A geração local falhou (" + String(error?.message || error || "erro desconhecido") + ") e não consegui obter resultados públicos do Google nesta tentativa. Verifique a conexão e tente novamente."
+        content: fallback || "Não consegui completar a resposta localmente. Vou precisar de acesso à pesquisa pública do Google para trazer a resposta."
       }]);
     } finally {
       clearTimeout(timer);
