@@ -85,7 +85,7 @@ function App() {
       console.error("Falha na IA local da Nara:", error);
       setMessages(current => [...current, {
         role: "assistant",
-        content: "Não consegui iniciar o modelo de IA local neste aparelho. A instalação pode estar incompleta; não vou fingir que respondi. Confira se a compilação terminou sem erros."
+        content: "Falha ao iniciar a IA local: " + String(error?.message || error || "erro desconhecido") + ". Código: " + String(error?.name || "Error")
       }]);
     } finally {
       setBusy(false);
