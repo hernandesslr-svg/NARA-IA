@@ -22,8 +22,8 @@ jobs:
           python - <<'PY'
           from huggingface_hub import snapshot_download
           snapshot_download(
-              repo_id="onnx-community/SmolLM2-360M-ONNX",
-              local_dir="public/models/onnx-community/SmolLM2-360M-ONNX",
+              repo_id="onnx-community/SmolLM2-135M-Instruct-ONNX",
+              local_dir="public/models/onnx-community/SmolLM2-135M-Instruct-ONNX",
               allow_patterns=["config.json", "generation_config.json", "tokenizer.json", "tokenizer_config.json", "special_tokens_map.json", "vocab.json", "merges.txt", "quantize_config.json", "onnx/model_q4.onnx"],
           )
           PY
