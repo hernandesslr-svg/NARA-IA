@@ -67,15 +67,14 @@ function App() {
     try {
       const generator = await getLocalGenerator();
       const prompt = [
-        "<|im_start|>system\\nVocê é Nara, uma assistente útil, clara e amigável. Responda em português brasileiro por padrão. Se não souber, diga que não sabe; não invente fatos.<|im_end|>",
-        ...next.slice(-12).map(({ role, content }) => "<|im_start|>" + role + "\\n" + content + "<|im_end|>"),
-        "<|im_start|>assistant\\n"
-      ].join("\\n");
+        "<|im_start|>system\nVocê é Nara, uma assistente útil, clara e amigável. Responda em português brasileiro por padrão. Seja objetiva e priorize respostas curtas e úteis. Se não souber, diga que não sabe; não invente fatos.<|im_end|>",
+        ...next.slice(-6).map(({ role, content }) => "<|im_start|>" + role + "\n" + content + "<|im_end|>"),
+        "<|im_start|>assistant\n"
+      ].join("\n");
       const result = await generator(prompt, {
-        max_new_tokens: 180,
-        do_sample: true,
-        temperature: 0.7,
-        repetition_penalty: 1.1
+        max_new_tokens: 64,
+        do_sample: false,
+        repetition_penalty: 1.05
       });
       const generated = result?.[0]?.generated_text;
       const answer = Array.isArray(generated)
