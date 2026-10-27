@@ -30,7 +30,9 @@ jobs:
       - name: Bundle ONNX Runtime Web files for offline inference
         run: |
           mkdir -p public/onnx-runtime
-          find node_modules/@huggingface/transformers/dist -maxdepth 1 -name "*.mjs" -exec cp {} public/onnx-runtime/ \\;\n          find node_modules -path "*/onnxruntime-web/dist/*.wasm" -exec cp {} public/onnx-runtime/ \\;\n          find public/onnx-runtime -maxdepth 1 -type f -print
+          find node_modules/@huggingface/transformers/dist -maxdepth 1 -name "*.mjs" -exec cp {} public/onnx-runtime/ +
+          find node_modules -path "*/onnxruntime-web/dist/*.wasm" -exec cp {} public/onnx-runtime/ +
+          find public/onnx-runtime -maxdepth 1 -type f -print
       - name: Build web app with bundled local AI model
         run: npm run build
       - uses: actions/setup-java@v4
