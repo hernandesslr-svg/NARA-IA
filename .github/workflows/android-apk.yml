@@ -22,9 +22,9 @@ jobs:
           python - <<'PY'
           from huggingface_hub import snapshot_download
           snapshot_download(
-              repo_id="onnx-community/SmolLM2-360M-Instruct-ONNX-GQA",
-              local_dir="public/models/onnx-community/SmolLM2-360M-Instruct-ONNX-GQA",
-              ignore_patterns=["*.md", "*.png", "*.jpg", "*.jpeg", ".gitattributes"],
+              repo_id="onnx-community/SmolLM2-360M-ONNX",
+              local_dir="public/models/onnx-community/SmolLM2-360M-ONNX",
+              allow_patterns=["config.json", "generation_config.json", "tokenizer.json", "tokenizer_config.json", "special_tokens_map.json", "vocab.json", "merges.txt", "quantize_config.json", "onnx/model_q4.onnx"],
           )
           PY
       - name: Bundle ONNX Runtime Web files for offline inference
