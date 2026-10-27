@@ -4,7 +4,7 @@ import { pipeline, env } from "@huggingface/transformers";
 import "./style.css";
 
 // Modelo ONNX empacotado no APK: sem URL de API, chave ou servidor externo.
-const MODEL_ID = "onnx-community/SmolLM2-360M-Instruct-ONNX-GQA";
+const MODEL_ID = "onnx-community/SmolLM2-360M-ONNX";
 let localGeneratorPromise;
 env.localModelPath = "/models/";
 env.allowRemoteModels = false;
