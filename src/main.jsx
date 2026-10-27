@@ -3,25 +3,38 @@ import { createRoot } from "react-dom/client";
 import "./style.css";
 
 const API_URL = (import.meta.env.VITE_NARA_API_URL || "").trim();
-const STORAGE_KEY = "nara-chat-history-v1";
 
-function loadMessages() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
-    if (Array.isArray(saved) && saved.length) return saved;
-  } catch {}
-  return [{ role: "assistant", content: "Oi! Sou a Nara. Estou aqui para conversar com você." }];
-}
+const icon = {
+  menu: <><path d="M4 6h16M4 12h16M4 18h16"/></>,
+  close: <><path d="m6 6 12 12M18 6 6 18"/></>,
+  plus: <><path d="M12 5v14M5 12h14"/></>,
+  send: <><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></>,
+  image: <><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></>,
+  book: <><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/></>,
+  settings: <><circle cx="12" cy="12" r="3"/><path d="m19.4 15 .1.1 1.4 1.1-1.4 2.4-1.7-.7a8 8 0 0 1-1.8 1l-.3 1.8h-2.8l-.3-1.8a8 8 0 0 1-1.8-1l-1.7.7-1.4-2.4L7.1 15a8 8 0 0 1 0-2l-1.4-1.1 1.4-2.4 1.7.7a8 8 0 0 1 1.8-1l.3-1.8h2.8l.3 1.8a8 8 0 0 1 1.8 1l1.7-.7 1.4 2.4-1.4 1.1a8 8 0 0 1-.1 2Z"/></>,
+  bell: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></>,
+  palette: <><path d="M12 3a9 9 0 1 0 0 18h1.5a2 2 0 0 0 1.5-3.3 1.7 1.7 0 0 1 1.3-2.8H18a3 3 0 0 0 3-3c0-5-4-8.9-9-8.9Z"/><circle cx="7.5" cy="10" r=".8"/><circle cx="10" cy="6.8" r=".8"/><circle cx="15" cy="7.5" r=".8"/></>,
+  globe: <><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20"/></>,
+  shield: <><path d="M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11Z"/><path d="m9 12 2 2 4-4"/></>,
+  info: <><circle cx="12" cy="12" r="10"/><path d="M12 11v5M12 8h.01"/></>,
+  file: <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6M8 13h8M8 17h8"/></>
+};
+function Icon({name, size=22}) { return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{icon[name] || icon.info}</svg>; }
 
 function App() {
-  const [messages, setMessages] = useState(loadMessages);
+  const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [panel, setPanel] = useState("chat");
+  const [drawer, setDrawer] = useState(false);
+  const [libraryTab, setLibraryTab] = useState("Todas");
+  const [theme, setTheme] = useState("Escuro");
+  const [accent, setAccent] = useState("#8b20ff");
+  const [language, setLanguage] = useState("Português (BR)");
+  const [notifications, setNotifications] = useState(true);
+  const [memory, setMemory] = useState(true);
+  const [privacy, setPrivacy] = useState(true);
   const listRef = useRef(null);
-
-  useEffect(() => {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(messages.slice(-100))); } catch {}
-  }, [messages]);
 
   useEffect(() => {
     if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
@@ -31,18 +44,13 @@ function App() {
     e.preventDefault();
     const question = input.trim();
     if (!question || busy) return;
-    setInput("");
     const next = [...messages, { role: "user", content: question }];
     setMessages(next);
-
+    setInput("");
     if (!API_URL) {
-      setMessages(current => [...current, {
-        role: "assistant",
-        content: "Ainda não consigo responder porque o serviço de IA não foi conectado. Não é um problema do seu celular e eu não vou baixar nenhum modelo. Preciso que a conexão com o servidor seja configurada."
-      }]);
+      setMessages(current => [...current, { role: "assistant", content: "O serviço de IA ainda não está conectado. A interface está pronta, mas é necessário configurar o serviço de respostas para eu conseguir responder às suas perguntas." }]);
       return;
     }
-
     setBusy(true);
     try {
       const response = await fetch(API_URL, {
@@ -50,38 +58,70 @@ function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: next.slice(-20).map(({role, content}) => ({role, content})), message: question })
       });
-      if (!response.ok) throw new Error("Serviço indisponível (" + response.status + ")");
+      if (!response.ok) throw new Error("Serviço indisponível");
       const data = await response.json();
       const answer = data.reply ?? data.response ?? data.message?.content ?? data.choices?.[0]?.message?.content;
-      if (typeof answer !== "string" || !answer.trim()) throw new Error("Resposta inválida do serviço");
+      if (typeof answer !== "string" || !answer.trim()) throw new Error("Resposta inválida");
       setMessages(current => [...current, { role: "assistant", content: answer.trim() }]);
     } catch {
-      setMessages(current => [...current, { role: "assistant", content: "Não consegui alcançar o serviço de IA agora. Verifique sua conexão e tente novamente." }]);
-    } finally {
-      setBusy(false);
-    }
+      setMessages(current => [...current, { role: "assistant", content: "Não consegui alcançar o serviço de IA agora. Verifique a conexão do serviço e tente novamente." }]);
+    } finally { setBusy(false); }
   }
 
-  return <main className="app-shell">
+  function newChat() { setMessages([]); setInput(""); setPanel("chat"); setDrawer(false); }
+  function openPanel(next) { setPanel(next); setDrawer(false); }
+  const settings = [
+    { title: "Geral", subtitle: "Preferências básicas", icon: "settings", action: "general" },
+    { title: "Notificações", subtitle: "Alertas e lembretes", icon: "bell", action: "notifications" },
+    { title: "Personalização", subtitle: "Tema e cor principal", icon: "palette", action: "personalization" },
+    { title: "Idioma", subtitle: language, icon: "globe", action: "language" },
+    { title: "Privacidade", subtitle: "Seus dados e segurança", icon: "shield", action: "privacy" },
+    { title: "Sobre", subtitle: "Informações da Nara", icon: "info", action: "about" }
+  ];
+
+  return <main className={`app-shell ${theme === "Claro" ? "light-theme" : ""}`} style={{"--accent": accent}}>
     <header className="topbar">
-      <div className="brand-mark">N</div>
-      <div className="brand-copy"><h1>Nara</h1><p>Sua assistente pessoal</p></div>
-      <span className="online-dot" aria-label="Aplicativo aberto" />
+      <button className="icon-button menu-button" onClick={() => setDrawer(true)} aria-label="Abrir menu"><Icon name="menu"/></button>
+      <h1>Nara</h1>
+      <button className="icon-button more-button" onClick={() => openPanel("settings")} aria-label="Configurações"><Icon name="settings"/></button>
     </header>
-    <section className="chat-list" ref={listRef} aria-live="polite">
-      <div className="day-label">CONVERSA</div>
-      {messages.map((m, i) => <article className={"message " + (m.role === "user" ? "from-user" : "from-nara")} key={i}>
-        {m.role !== "user" && <div className="avatar-small">N</div>}
-        <div className="bubble"><p>{m.content}</p></div>
-      </article>)}
-      {busy && <article className="message from-nara"><div className="avatar-small">N</div><div className="bubble typing"><i/><i/><i/></div></article>}
-    </section>
-    <form className="composer" onSubmit={send}>
-      <input value={input} onChange={e => setInput(e.target.value)} placeholder="Mensagem para a Nara" aria-label="Mensagem para a Nara" disabled={busy}/>
-      <button aria-label="Enviar mensagem" title="Enviar mensagem" disabled={busy || !input.trim()}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12 20 4l-5 16-3-6-8-2Z"/><path d="M12 14 20 4"/></svg></button>
-    </form>
-    <p className="footer-note">As conversas ficam neste aparelho. A IA online precisa ser conectada para responder.</p>
+
+    {panel === "chat" && <>
+      <section className="chat-list" ref={listRef} aria-live="polite">
+        {messages.map((m, i) => <article className={"message " + (m.role === "user" ? "from-user" : "from-nara")} key={i}>
+          <div className="bubble"><p>{m.content}</p></div>
+        </article>)}
+        {busy && <article className="message from-nara"><div className="bubble typing"><i/><i/><i/></div></article>}
+      </section>
+      <form className="composer" onSubmit={send}>
+        <button type="button" className="icon-button plus-button" onClick={() => openPanel("library")} aria-label="Abrir biblioteca"><Icon name="plus"/></button>
+        <input value={input} onChange={e => setInput(e.target.value)} placeholder="Digite sua mensagem..." aria-label="Mensagem para a Nara" disabled={busy}/>
+        <button type="submit" className="send-button" aria-label="Enviar mensagem" disabled={busy || !input.trim()}><Icon name="send" size={21}/></button>
+      </form>
+    </>}
+
+    {panel === "library" && <section className="page-panel">
+      <div className="page-heading"><button className="back-button" onClick={() => openPanel("chat")}>‹</button><h2>Biblioteca</h2></div>
+      <div className="tab-row">{["Todas","Imagens","Vídeos","Documentos"].map(t => <button key={t} className={libraryTab===t?"tab active":"tab"} onClick={() => setLibraryTab(t)}>{t}</button>)}</div>
+      <div className="empty-state"><div className="empty-icon"><Icon name={libraryTab==="Documentos"?"file":"book"} size={34}/></div><h3>Sua biblioteca está vazia</h3><p>Os arquivos que você adicionar aparecerão aqui.</p></div>
+    </section>}
+
+    {panel === "settings" && <section className="page-panel">
+      <div className="page-heading"><button className="back-button" onClick={() => openPanel("chat")}>‹</button><h2>Configurações</h2></div>
+      <div className="settings-list">{settings.map(s => <button className="setting-row" key={s.action} onClick={() => openPanel(s.action)}><span className="setting-icon"><Icon name={s.icon}/></span><span className="setting-copy"><strong>{s.title}</strong><small>{s.subtitle}</small></span><span className="chevron">›</span></button>)}</div>
+    </section>}
+
+    {panel === "general" && <SubPage title="Geral" back={() => openPanel("settings")}><div className="setting-detail"><strong>Memória da conversa</strong><p>Manter o contexto durante esta conversa.</p><Toggle checked={memory} onChange={setMemory}/></div><div className="setting-detail"><strong>Privacidade local</strong><p>Não salvar conversas automaticamente neste aparelho.</p><Toggle checked={privacy} onChange={setPrivacy}/></div></SubPage>}
+    {panel === "notifications" && <SubPage title="Notificações" back={() => openPanel("settings")}><div className="setting-detail"><strong>Notificações gerais</strong><p>Permitir alertas do aplicativo.</p><Toggle checked={notifications} onChange={setNotifications}/></div></SubPage>}
+    {panel === "personalization" && <SubPage title="Personalização" back={() => openPanel("settings")}><h3 className="section-label">Tema</h3><div className="theme-options">{["Escuro","Claro","Automático"].map(t=><button className={theme===t?"theme-option selected":"theme-option"} key={t} onClick={()=>setTheme(t)}>{t}</button>)}</div><h3 className="section-label">Cor principal</h3><div className="color-options">{["#8b20ff","#2678ff","#ed3e91","#f04444","#f28b20","#19b66a"].map(c=><button key={c} aria-label={"Cor "+c} className={accent===c?"color-swatch selected":"color-swatch"} style={{background:c}} onClick={()=>setAccent(c)}/>)}</div></SubPage>}
+    {panel === "language" && <SubPage title="Idioma" back={() => openPanel("settings")}><div className="setting-detail"><label htmlFor="language">Idioma do aplicativo</label><select id="language" value={language} onChange={e=>setLanguage(e.target.value)}><option>Português (BR)</option><option>English</option><option>Español</option></select></div></SubPage>}
+    {panel === "privacy" && <SubPage title="Privacidade" back={() => openPanel("settings")}><div className="setting-detail"><strong>Conversas não são salvas entre sessões</strong><p>Esta versão mantém as mensagens apenas enquanto o chat está aberto.</p></div></SubPage>}
+    {panel === "about" && <SubPage title="Sobre a Nara" back={() => openPanel("settings")}><div className="about-card"><h3>Nara</h3><p>Sua assistente pessoal.</p><small>Aplicativo Android</small></div></SubPage>}
+
+    {drawer && <div className="drawer-backdrop" onClick={() => setDrawer(false)}><nav className="drawer" onClick={e=>e.stopPropagation()}><div className="drawer-header"><span>Nara</span><button className="icon-button" onClick={()=>setDrawer(false)} aria-label="Fechar menu"><Icon name="close"/></button></div><button className="drawer-item" onClick={newChat}><Icon name="plus"/>Nova conversa</button><button className="drawer-item" onClick={()=>openPanel("library")}><Icon name="image"/>Biblioteca</button><button className="drawer-item" onClick={()=>openPanel("settings")}><Icon name="settings"/>Configurações</button></nav></div>}
   </main>;
 }
+function Toggle({checked,onChange}) { return <button type="button" className={"toggle "+(checked?"on":"")} role="switch" aria-checked={checked} onClick={()=>onChange(!checked)}><span/></button>; }
+function SubPage({title,back,children}) { return <section className="page-panel"><div className="page-heading"><button className="back-button" onClick={back}>‹</button><h2>{title}</h2></div><div className="subpage-content">{children}</div></section>; }
 
 createRoot(document.getElementById("root")).render(<App />);
