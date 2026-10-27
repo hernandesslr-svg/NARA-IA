@@ -10,6 +10,9 @@ env.localModelPath = "/models/";
 env.allowLocalModels = true;
 env.allowRemoteModels = false;
 env.backends.onnx.wasm.wasmPaths = "/onnx-runtime/";
+// Android WebView nem sempre oferece isolamento para WASM multithread.
+// Uma thread evita travamentos causados por SharedArrayBuffer/workers.
+env.backends.onnx.wasm.numThreads = 1;
 
 function getLocalGenerator() {
   if (!localGeneratorPromise) {
