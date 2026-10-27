@@ -29,10 +29,21 @@ jobs:
           PY
       - name: Bundle ONNX Runtime Web files for offline inference
         run: |
-          mkdir -p public/onnx-runtime
-          find node_modules/@huggingface/transformers/dist -maxdepth 1 -name "*.mjs" -exec cp {} public/onnx-runtime/ +
-          find node_modules -path "*/onnxruntime-web/dist/*.wasm" -exec cp {} public/onnx-runtime/ +
-          find public/onnx-runtime -maxdepth 1 -type f -print
+          python - <<'PY'
+          from pathlib import Path
+          import shutil
+          root = Path("node_modules")
+          target = Path("public/onnx-runtime")
+          target.mkdir(parents=True, exist_ok=True)
+          for source in (root / "@huggingface/transformers/dist").glob("*.mjs"):
+              shutil.copy2(source, target / source.name)
+          for source in root.glob("**/onnxruntime-web/dist/*.wasm"):
+              shutil.copy2(source, target / source.name)
+          files = sorted(p.name for p in target.iterdir() if p.is_file())
+          print("\n".join(files))
+          if not any(name.endswith(".wasm") for name in files):
+              raise SystemExit("Nenhum arquivo WASM do ONNX Runtime foi encontrado")
+          PY
       - name: Build web app with bundled local AI model
         run: npm run build
       - uses: actions/setup-java@v4
