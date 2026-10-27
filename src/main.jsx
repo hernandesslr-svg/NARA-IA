@@ -7,6 +7,7 @@ import "./style.css";
 const MODEL_ID = "onnx-community/SmolLM2-360M-ONNX";
 let localGeneratorPromise;
 env.localModelPath = "/models/";
+env.allowLocalModels = true;
 env.allowRemoteModels = false;
 env.backends.onnx.wasm.wasmPaths = "/onnx-runtime/";
 
