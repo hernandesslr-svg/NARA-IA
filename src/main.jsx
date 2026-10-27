@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { pipeline, env } from "@huggingface/transformers";
 import "./style.css";
+import { TRAINED_CORE, buildSystemPrompt } from "./nara-core";
 
 // Modelo ONNX empacotado no APK: sem URL de API, chave ou servidor externo.
 const MODEL_ID = "onnx-community/SmolLM2-135M-Instruct-ONNX";
@@ -59,6 +60,35 @@ function App() {
     if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
   }, [messages, busy]);
 
+  function normalizeCoreText(value) {
+    return String(value || "").toLocaleLowerCase("pt-BR")
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/g, " ").trim().replace(/\s+/g, " ");
+  }
+
+  function findCoreAnswer(question) {
+    const normalized = normalizeCoreText(question);
+    if (!normalized) return null;
+    const lessons = TRAINED_CORE?.lessons || [];
+    const exact = lessons.find(item => normalizeCoreText(item.user) === normalized);
+    if (exact?.assistant?.trim()) return exact.assistant.trim();
+
+    const queryWords = [...new Set(normalized.split(" ").filter(word => word.length > 2))];
+    if (queryWords.length < 3) return null;
+    let best = null;
+    let bestScore = 0;
+    for (const lesson of lessons) {
+      const candidate = normalizeCoreText(lesson.user);
+      if (!candidate) continue;
+      const words = new Set(candidate.split(" ").filter(word => word.length > 2));
+      let hits = 0;
+      for (const word of queryWords) if (words.has(word)) hits++;
+      const score = hits / Math.max(queryWords.length, words.size);
+      if (score > bestScore) { bestScore = score; best = lesson; }
+    }
+    return best && bestScore >= 0.78 && best.assistant?.trim() ? best.assistant.trim() : null;
+  }
+
   async function send(e) {
     e.preventDefault();
     const question = input.trim();
@@ -70,35 +100,38 @@ function App() {
     let stage = "carregamento do modelo";
     let timer;
     try {
+      // Busca no núcleo original antes de chamar o modelo generativo.
+      const learned = findCoreAnswer(question);
+      if (learned) {
+        setMessages(current => [...current, { role: "assistant", content: learned }]);
+        return;
+      }
+      const nucleusPrompt = buildSystemPrompt("livre", TRAINED_CORE, question);
       const timeout = new Promise((_, reject) => {
-        timer = setTimeout(() => reject(new Error("Tempo esgotado durante " + stage + ". A execução local está travando ou está lenta demais neste aparelho.")), 60000);
+        timer = setTimeout(() => reject(new Error("Tempo esgotado durante " + stage + ".")), 25000);
       });
       const task = (async () => {
         const generator = await getLocalGenerator();
         stage = "geração da resposta";
         const prompt = [
-          "<|im_start|>system\nVocê é Nara, uma assistente útil, clara e amigável. Responda em português brasileiro por padrão. Seja objetiva e priorize respostas curtas e úteis. Se não souber, diga que não sabe; não invente fatos.<|im_end|>",
+          "<|im_start|>system\n" + nucleusPrompt + "\nUse as lições e fatos relevantes do núcleo como contexto prioritário. Responda diretamente à pergunta atual em português brasileiro. Se o núcleo não trouxer resposta suficiente, raciocine com o que souber e deixe clara qualquer incerteza. Nunca diga que está pensando sem responder.<|im_end|>",
           ...next.slice(-6).map(({ role, content }) => "<|im_start|>" + role + "\n" + content + "<|im_end|>"),
           "<|im_start|>assistant\n"
         ].join("\n");
-        return await generator(prompt, {
-          max_new_tokens: 40,
-          do_sample: false,
-          repetition_penalty: 1.05
-        });
+        return await generator(prompt, { max_new_tokens: 96, do_sample: false, repetition_penalty: 1.08 });
       })();
       const result = await Promise.race([task, timeout]);
       const generated = result?.[0]?.generated_text;
       const answer = Array.isArray(generated)
         ? generated.filter(item => item.role === "assistant").at(-1)?.content
-        : typeof generated === "string" ? generated.slice(generated.lastIndexOf(question) + question.length).trim() : "";
+        : typeof generated === "string" ? generated.slice(generated.lastIndexOf("<|im_start|>assistant") + "<|im_start|>assistant".length).replace(/<\|im_end\|>.*/s, "").trim() : "";
       if (!answer || !answer.trim()) throw new Error("O modelo não gerou uma resposta.");
       setMessages(current => [...current, { role: "assistant", content: answer.trim() }]);
     } catch (error) {
       console.error("Falha na IA local da Nara:", error);
       setMessages(current => [...current, {
         role: "assistant",
-        content: "Falha ao iniciar a IA local: " + String(error?.message || error || "erro desconhecido") + ". Código: " + String(error?.name || "Error")
+        content: "Não consegui concluir a geração local desta vez (" + String(error?.message || error || "erro desconhecido") + "). O núcleo treinado foi consultado; tente uma pergunta mais direta."
       }]);
     } finally {
       clearTimeout(timer);
