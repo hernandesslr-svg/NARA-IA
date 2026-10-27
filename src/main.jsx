@@ -4,7 +4,7 @@ import { pipeline, env } from "@huggingface/transformers";
 import "./style.css";
 
 // Modelo ONNX empacotado no APK: sem URL de API, chave ou servidor externo.
-const MODEL_ID = "onnx-community/SmolLM2-360M-ONNX";
+const MODEL_ID = "onnx-community/SmolLM2-135M-Instruct-ONNX";
 let localGeneratorPromise;
 env.localModelPath = "/models/";
 env.allowLocalModels = true;
@@ -72,7 +72,7 @@ function App() {
         "<|im_start|>assistant\n"
       ].join("\n");
       const result = await generator(prompt, {
-        max_new_tokens: 64,
+        max_new_tokens: 40,
         do_sample: false,
         repetition_penalty: 1.05
       });
