@@ -120,7 +120,7 @@ function App() {
 
   function simpleAnswer(question) {
     const q = String(question || "").trim().replace(/,/g, ".");
-    const match = q.match(/^(?:quanto\\s+(?:é|e)\\s+)?(-?\\d+(?:\\.\\d+)?)\\s*([+\\-*/x×])\\s*(-?\\d+(?:\\.\\d+)?)\\s*[?!.]*$/i);
+    const match = q.match(/^(?:quanto\\s+(?:é|e)\\s+)?(-?\\d+(?:\\.\\d+)?)\\s*(\\+|-|\\*|\\/|x|×)\\s*(-?\\d+(?:\\.\\d+)?)\\s*[?!.]*$/i);
     if (!match) return null;
     const a = Number(match[1]), op = match[2].toLowerCase(), b = Number(match[3]);
     let n;
