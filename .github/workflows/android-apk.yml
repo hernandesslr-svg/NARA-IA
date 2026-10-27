@@ -16,7 +16,22 @@ jobs:
           node-version: "20"
       - name: Install dependencies
         run: npm install
-      - name: Build web app without bundled AI model
+      - name: Download local ONNX language model into APK assets
+        run: |
+          python -m pip install --quiet huggingface_hub
+          python - <<'PY'
+          from huggingface_hub import snapshot_download
+          snapshot_download(
+              repo_id="onnx-community/SmolLM2-360M-Instruct-ONNX-GQA",
+              local_dir="public/models/onnx-community/SmolLM2-360M-Instruct-ONNX-GQA",
+              ignore_patterns=["*.md", "*.png", "*.jpg", "*.jpeg", ".gitattributes"],
+          )
+          PY
+      - name: Bundle ONNX Runtime Web files for offline inference
+        run: |
+          mkdir -p public/onnx-runtime
+          find node_modules/@huggingface/transformers/dist -maxdepth 1 \\( -name "*.wasm" -o -name "*.mjs" \\) -exec cp {} public/onnx-runtime/ \\;
+      - name: Build web app with bundled local AI model
         run: npm run build
       - uses: actions/setup-java@v4
         with:

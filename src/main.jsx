@@ -1,8 +1,22 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { pipeline, env } from "@huggingface/transformers";
 import "./style.css";
 
-const API_URL = (import.meta.env.VITE_NARA_API_URL || "").trim();
+// Modelo ONNX empacotado no APK: sem URL de API, chave ou servidor externo.
+const MODEL_ID = "onnx-community/SmolLM2-360M-Instruct-ONNX-GQA";
+let localGeneratorPromise;
+env.localModelPath = "/models/";
+env.allowRemoteModels = false;
+env.backends.onnx.wasm.wasmPaths = "/onnx-runtime/";
+
+function getLocalGenerator() {
+  if (!localGeneratorPromise) {
+    localGeneratorPromise = pipeline("text-generation", MODEL_ID, { dtype: "q4" })
+      .catch(error => { localGeneratorPromise = null; throw error; });
+  }
+  return localGeneratorPromise;
+}
 
 const icon = {
   menu: <><path d="M4 6h16M4 12h16M4 18h16"/></>,
@@ -48,25 +62,34 @@ function App() {
     const next = [...messages, { role: "user", content: question }];
     setMessages(next);
     setInput("");
-    if (!API_URL) {
-      setMessages(current => [...current, { role: "assistant", content: "O serviço de IA ainda não está conectado. A interface está pronta, mas é necessário configurar o serviço de respostas para eu conseguir responder às suas perguntas." }]);
-      return;
-    }
     setBusy(true);
     try {
-      const response = await fetch(API_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: next.slice(-20).map(({role, content}) => ({role, content})), message: question })
+      const generator = await getLocalGenerator();
+      const prompt = [
+        { role: "system", content: "Você é Nara, uma assistente útil, clara e amigável. Responda em português brasileiro por padrão. Se não souber, diga que não sabe; não invente fatos." },
+        ...next.slice(-12).map(({ role, content }) => ({ role, content }))
+      ];
+      const result = await generator(prompt, {
+        max_new_tokens: 180,
+        do_sample: true,
+        temperature: 0.7,
+        repetition_penalty: 1.1
       });
-      if (!response.ok) throw new Error("Serviço indisponível");
-      const data = await response.json();
-      const answer = data.reply ?? data.response ?? data.message?.content ?? data.choices?.[0]?.message?.content;
-      if (typeof answer !== "string" || !answer.trim()) throw new Error("Resposta inválida");
+      const generated = result?.[0]?.generated_text;
+      const answer = Array.isArray(generated)
+        ? generated.filter(item => item.role === "assistant").at(-1)?.content
+        : typeof generated === "string" ? generated.slice(generated.lastIndexOf(question) + question.length).trim() : "";
+      if (!answer || !answer.trim()) throw new Error("O modelo não gerou uma resposta.");
       setMessages(current => [...current, { role: "assistant", content: answer.trim() }]);
-    } catch {
-      setMessages(current => [...current, { role: "assistant", content: "Não consegui alcançar o serviço de IA agora. Verifique a conexão do serviço e tente novamente." }]);
-    } finally { setBusy(false); }
+    } catch (error) {
+      console.error("Falha na IA local da Nara:", error);
+      setMessages(current => [...current, {
+        role: "assistant",
+        content: "Não consegui iniciar o modelo de IA local neste aparelho. A instalação pode estar incompleta; não vou fingir que respondi. Confira se a compilação terminou sem erros."
+      }]);
+    } finally {
+      setBusy(false);
+    }
   }
 
   function newChat() { setMessages([]); setInput(""); setPanel("chat"); setDrawer(false); }
