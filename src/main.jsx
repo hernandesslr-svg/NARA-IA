@@ -74,7 +74,8 @@ function App() {
         max_new_tokens: 180,
         do_sample: true,
         temperature: 0.7,
-        repetition_penalty: 1.1
+        repetition_penalty: 1.1,
+        chat_template: "{% for message in messages %}{{ '<|im_start|>' + message['role'] + '\\n' + message['content'] + '<|im_end|>' + '\\n' }}{% endfor %}{% if add_generation_prompt %}{{ '<|im_start|>assistant\\n' }}{% endif %}"
       });
       const generated = result?.[0]?.generated_text;
       const answer = Array.isArray(generated)
