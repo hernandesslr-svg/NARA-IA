@@ -112,8 +112,21 @@ function App() {
     }
   }
 
+  function simpleAnswer(question) {
+    const q = String(question || "").trim().replace(/,/g, ".");
+    const match = q.match(/^(?:quanto\\s+(?:é|e)\\s+)?(-?\\d+(?:\\.\\d+)?)\\s*([+\\-*/x×])\\s*(-?\\d+(?:\\.\\d+)?)\\s*[?!.]*$/i);
+    if (!match) return null;
+    const a = Number(match[1]), op = match[2].toLowerCase(), b = Number(match[3]);
+    let n;
+    if (op === "+") n = a + b;
+    else if (op === "-") n = a - b;
+    else if (["*", "x", "×"].includes(op)) n = a * b;
+    else { if (b === 0) return "Não é possível dividir por zero."; n = a / b; }
+    return String(n);
+  }
+
   function needsInternetResearch(question) {
-    return /(internet|pesquis|pesquise|pesquisar|busque|procure|not[ií]cia|atual|hoje|agora|atualmente|pol[ií]tica|presidente|governo|elei[cç][aã]o|cot[aã][cç][aã]o|pre[cç]o|quanto custa|quem [eé]|quando foi|fonte|link|site|202[5-9]|203\d)/i.test(question);
+    return /(internet|google|pesquis|busque|procure|not[ií]cia|atual|hoje|agora|atualmente|pol[ií]tica|presidente|governo|elei[cç][aã]o|cot[aã][cç][aã]o|pre[cç]o|quanto custa|quem [eé]|quando foi|fonte|link|site|202[5-9]|203\\d)/i.test(question);
   }
 
   async function send(e) {
@@ -127,6 +140,11 @@ function App() {
     let stage = "carregamento do modelo";
     let timer;
     try {
+      const direct = simpleAnswer(question);
+      if (direct !== null) {
+        setMessages(current => [...current, { role: "assistant", content: direct }]);
+        return;
+      }
       // Para assuntos atuais ou pedidos de pesquisa, consulta a internet primeiro.
       let webContext = "";
       if (needsInternetResearch(question)) {
@@ -164,9 +182,23 @@ function App() {
       setMessages(current => [...current, { role: "assistant", content: answer.trim() }]);
     } catch (error) {
       console.error("Falha na IA local da Nara:", error);
+      let fallback = "";
+      try {
+        stage = "pesquisa de fallback no Google";
+        const webContext = await searchInternet(question);
+        if (webContext) {
+          const generator = await getLocalGenerator();
+          const prompt = "<|im_start|>system\\nResponda em português brasileiro usando os resultados públicos de pesquisa abaixo. Seja direto, não invente dados e inclua URLs quando disponíveis.\\n" + webContext + "<|im_end|>\\n<|im_start|>user\\n" + question + "<|im_end|>\\n<|im_start|>assistant\\n";
+          const result = await generator(prompt, { max_new_tokens: 120, do_sample: false });
+          const generated = result?.[0]?.generated_text;
+          fallback = typeof generated === "string" ? generated.slice(generated.lastIndexOf("<|im_start|>assistant") + "<|im_start|>assistant".length).replace(/<\\|im_end\\|>.*/s, "").trim() : "";
+        }
+      } catch (fallbackError) {
+        console.warn("Fallback de pesquisa também falhou:", fallbackError);
+      }
       setMessages(current => [...current, {
         role: "assistant",
-        content: "Não consegui concluir a geração local desta vez (" + String(error?.message || error || "erro desconhecido") + "). O núcleo treinado foi consultado; tente uma pergunta mais direta."
+        content: fallback || "A geração local falhou (" + String(error?.message || error || "erro desconhecido") + ") e não consegui obter resultados públicos do Google nesta tentativa. Verifique a conexão e tente novamente."
       }]);
     } finally {
       clearTimeout(timer);
