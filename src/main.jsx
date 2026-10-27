@@ -67,18 +67,27 @@ function App() {
     setMessages(next);
     setInput("");
     setBusy(true);
+    let stage = "carregamento do modelo";
+    let timer;
     try {
-      const generator = await getLocalGenerator();
-      const prompt = [
-        "<|im_start|>system\nVocê é Nara, uma assistente útil, clara e amigável. Responda em português brasileiro por padrão. Seja objetiva e priorize respostas curtas e úteis. Se não souber, diga que não sabe; não invente fatos.<|im_end|>",
-        ...next.slice(-6).map(({ role, content }) => "<|im_start|>" + role + "\n" + content + "<|im_end|>"),
-        "<|im_start|>assistant\n"
-      ].join("\n");
-      const result = await generator(prompt, {
-        max_new_tokens: 40,
-        do_sample: false,
-        repetition_penalty: 1.05
+      const timeout = new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error("Tempo esgotado durante " + stage + ". A execução local está travando ou está lenta demais neste aparelho.")), 60000);
       });
+      const task = (async () => {
+        const generator = await getLocalGenerator();
+        stage = "geração da resposta";
+        const prompt = [
+          "<|im_start|>system\nVocê é Nara, uma assistente útil, clara e amigável. Responda em português brasileiro por padrão. Seja objetiva e priorize respostas curtas e úteis. Se não souber, diga que não sabe; não invente fatos.<|im_end|>",
+          ...next.slice(-6).map(({ role, content }) => "<|im_start|>" + role + "\n" + content + "<|im_end|>"),
+          "<|im_start|>assistant\n"
+        ].join("\n");
+        return await generator(prompt, {
+          max_new_tokens: 40,
+          do_sample: false,
+          repetition_penalty: 1.05
+        });
+      })();
+      const result = await Promise.race([task, timeout]);
       const generated = result?.[0]?.generated_text;
       const answer = Array.isArray(generated)
         ? generated.filter(item => item.role === "assistant").at(-1)?.content
@@ -92,6 +101,7 @@ function App() {
         content: "Falha ao iniciar a IA local: " + String(error?.message || error || "erro desconhecido") + ". Código: " + String(error?.name || "Error")
       }]);
     } finally {
+      clearTimeout(timer);
       setBusy(false);
     }
   }
