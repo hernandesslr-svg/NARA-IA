@@ -14,6 +14,24 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
+      - name: Restore the original Nara trained nucleus from the preserved ZIP
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+          archive = Path("nara-interface-atualizada.zip")
+          if not archive.is_file():
+              raise SystemExit("ZIP original do núcleo Nara não encontrado")
+          with ZipFile(archive) as z:
+              source = z.read("grokws/src/lib/nara-core.ts").decode("utf-8")
+          source = source.replace('import type { ModeId } from "@/lib/nara-modes";', '')
+          source = source.replace("ModeId", "string")
+          target = Path("src/nara-core.ts")
+          target.write_text(source, encoding="utf-8")
+          print(f"Núcleo preservado integrado: {len(source)} caracteres")
+          if "TRAINED_CORE" not in source or "buildSystemPrompt" not in source:
+              raise SystemExit("O núcleo extraído está incompleto")
+          PY
       - name: Install dependencies
         run: npm install
       - name: Download local ONNX language model into APK assets
