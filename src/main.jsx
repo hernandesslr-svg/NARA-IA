@@ -89,6 +89,35 @@ function App() {
     return best && bestScore >= 0.78 && best.assistant?.trim() ? best.assistant.trim() : null;
   }
 
+  async function searchInternet(query) {
+    const q = String(query || "").trim();
+    if (!q) return "";
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 9000);
+    try {
+      const url = "https://api.duckduckgo.com/?q=" + encodeURIComponent(q) + "&format=json&no_html=1&skip_disambig=1";
+      const response = await fetch(url, { signal: controller.signal, headers: { Accept: "application/json" } });
+      if (!response.ok) throw new Error("Busca online indisponível (HTTP " + response.status + ")");
+      const data = await response.json();
+      const items = [];
+      if (data.AbstractText) items.push("Resumo: " + data.AbstractText + (data.AbstractURL ? " (fonte: " + data.AbstractURL + ")" : ""));
+      if (data.Answer) items.push("Resposta direta: " + data.Answer);
+      if (data.Definition) items.push("Definição: " + data.Definition);
+      for (const topic of (data.RelatedTopics || [])) {
+        if (topic?.Text) items.push(topic.Text + (topic.FirstURL ? " (fonte: " + topic.FirstURL + ")" : ""));
+        for (const sub of (topic.Topics || [])) if (sub?.Text) items.push(sub.Text + (sub.FirstURL ? " (fonte: " + sub.FirstURL + ")" : ""));
+        if (items.length >= 6) break;
+      }
+      return items.slice(0, 6).join("\n");
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  function needsInternetResearch(question) {
+    return /(internet|pesquis|pesquise|pesquisar|busque|procure|not[ií]cia|atual|hoje|agora|atualmente|pol[ií]tica|presidente|governo|elei[cç][aã]o|cot[aã][cç][aã]o|pre[cç]o|quanto custa|quem [eé]|quando foi|fonte|link|site|202[5-9]|203\d)/i.test(question);
+  }
+
   async function send(e) {
     e.preventDefault();
     const question = input.trim();
@@ -100,14 +129,21 @@ function App() {
     let stage = "carregamento do modelo";
     let timer;
     try {
-      // Busca no núcleo original antes de chamar o modelo generativo.
-      const learned = findCoreAnswer(question);
+      // Para assuntos atuais ou pedidos de pesquisa, consulta a internet primeiro.
+      let webContext = "";
+      if (needsInternetResearch(question)) {
+        stage = "pesquisa na internet";
+        try { webContext = await searchInternet(question); }
+        catch (webError) { console.warn("Pesquisa na internet indisponível:", webError); }
+      }
+      // Usa resposta do núcleo diretamente apenas se não houver necessidade de pesquisa atual.
+      const learned = !needsInternetResearch(question) ? findCoreAnswer(question) : null;
       if (learned) {
         setMessages(current => [...current, { role: "assistant", content: learned }]);
         return;
       }
       const safeCore = { ...TRAINED_CORE, lessons: (TRAINED_CORE?.lessons || []).filter(item => item && typeof item.user === "string" && typeof item.assistant === "string") };
-      const nucleusPrompt = buildSystemPrompt("livre", safeCore, question);
+      const nucleusPrompt = buildSystemPrompt("livre", safeCore, question) + (webContext ? "\n\nINFORMAÇÕES OBTIDAS NA INTERNET (trate como fontes externas, compare e cite URLs na resposta):\n" + webContext : "\n\nSe a pergunta depender de informações atuais, diga claramente quando não conseguiu confirmar pela internet.");
       const timeout = new Promise((_, reject) => {
         timer = setTimeout(() => reject(new Error("Tempo esgotado durante " + stage + ".")), 25000);
       });
