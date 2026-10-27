@@ -119,16 +119,15 @@ function App() {
   }
 
   function simpleAnswer(question) {
-    const q = String(question || "").trim().replace(/,/g, ".");
-    const match = q.match(/^(?:quanto\\s+(?:é|e)\\s+)?(-?\\d+(?:\\.\\d+)?)\\s*(\\+|-|\\*|\\/|x|×)\\s*(-?\\d+(?:\\.\\d+)?)\\s*[?!.]*$/i);
+    const q = String(question || "").trim().replace(/^quanto\\s+(?:é|e)\\s+/i, "").replace(/[?!.]+$/g, "").replace(/,/g, ".");
+    const match = q.match(/^(-?\d+(?:\.\d+)?)\s*([+*/]|x|×|-)\s*(-?\d+(?:\.\d+)?)$/i);
     if (!match) return null;
     const a = Number(match[1]), op = match[2].toLowerCase(), b = Number(match[3]);
-    let n;
-    if (op === "+") n = a + b;
-    else if (op === "-") n = a - b;
-    else if (["*", "x", "×"].includes(op)) n = a * b;
-    else { if (b === 0) return "Não é possível dividir por zero."; n = a / b; }
-    return String(n);
+    if (op === "+") return String(a + b);
+    if (op === "-") return String(a - b);
+    if (op === "*" || op === "x" || op === "×") return String(a * b);
+    if (b === 0) return "Não é possível dividir por zero.";
+    return String(a / b);
   }
 
   function needsInternetResearch(question) {
