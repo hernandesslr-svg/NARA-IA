@@ -28,7 +28,7 @@ function safeUrl(href, base) {
 }
 function extractDuck(html) {
   const results = [];
-  const blocks = html.match(/<div class="result[^"]*"[s\S]*?(?=<div class="result[^"]*"|$)/gi) || [];
+  const blocks = html.match(/<div class="result[^"]*"[\\s\\S]*?(?=<div class="result[^"]*"|$)/gi) || [];
   for (const block of blocks) {
     const rawLink = block.match(/class="result__a"[^>]*href="([^"]+)"/i)?.[1];
     const title = stripHtml(block.match(/class="result__a"[^>]*>([\s\S]*?)<\/a>/i)?.[1] || "");
