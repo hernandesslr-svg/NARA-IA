@@ -92,31 +92,90 @@ function App() {
   async function searchInternet(query) {
     const q = String(query || "").trim();
     if (!q) return "";
-    const api = "https://nara-web-search-production.up.railway.app";
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 18000);
+    const timer = setTimeout(() => controller.abort(), 16000);
+    const headers = { Accept: "application/json, text/plain, */*" };
+    const safeJson = async (url) => {
+      const response = await fetch(url, { signal: controller.signal, headers });
+      if (!response.ok) throw new Error("HTTP " + response.status);
+      return response.json();
+    };
+    const providers = [
+      async () => {
+        const data = await safeJson("https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=" + encodeURIComponent(q) + "&format=json&origin=*&srlimit=5");
+        return (data?.query?.search || []).map(x => ({
+          title: x.title, snippet: String(x.snippet || "").replace(/<[^>]*>/g, ""),
+          url: "https://en.wikipedia.org/wiki/" + encodeURIComponent(x.title.replace(/ /g, "_")), source: "Wikipedia"
+        }));
+      },
+      async () => {
+        const data = await safeJson("https://api.openalex.org/works?search=" + encodeURIComponent(q) + "&per-page=5");
+        return (data?.results || []).map(x => ({
+          title: x.title || "Publicação científica",
+          snippet: x.authorships?.slice(0, 3).map(a => a.author?.display_name).filter(Boolean).join(", ") || "Pesquisa acadêmica",
+          url: x.doi || x.primary_location?.landing_page_url || x.id, source: "OpenAlex"
+        })).filter(x => /^https?:/.test(x.url || ""));
+      },
+      async () => {
+        const data = await safeJson("https://api.crossref.org/works?query=" + encodeURIComponent(q) + "&rows=5");
+        return (data?.message?.items || []).map(x => ({
+          title: x.title?.[0] || "Artigo científico",
+          snippet: [x.author?.slice(0, 3).map(a => [a.given, a.family].filter(Boolean).join(" ")).join(", "), x["container-title"]?.[0], x.published?.["date-parts"]?.[0]?.join("-")].filter(Boolean).join(" · "),
+          url: x.URL, source: "Crossref"
+        })).filter(x => /^https?:/.test(x.url || ""));
+      },
+      async () => {
+        const data = await safeJson("https://hn.algolia.com/api/v1/search?query=" + encodeURIComponent(q) + "&tags=story&hitsPerPage=5");
+        return (data?.hits || []).map(x => ({
+          title: x.title || x.story_title || "Discussão",
+          snippet: (x.url || "") + (x.points != null ? " · " + x.points + " pontos" : ""),
+          url: x.url || x.story_url || ("https://news.ycombinator.com/item?id=" + x.objectID), source: "Hacker News"
+        })).filter(x => /^https?:/.test(x.url || ""));
+      },
+      async () => {
+        const url = "https://r.jina.ai/http://www.google.com/search?q=" + encodeURIComponent(q);
+        const response = await fetch(url, { signal: controller.signal, headers: { Accept: "text/plain" } });
+        if (!response.ok) throw new Error("Busca web HTTP " + response.status);
+        const text = (await response.text()).slice(0, 18000);
+        if (/captcha|unusual traffic|verify you are human/i.test(text)) throw new Error("Página de bloqueio detectada");
+        const links = [...text.matchAll(/(?:^|\n)(?:\s*\d+\.\s*)?([^\n]{8,180})\n(?:URL:\s*)?(https?:\/\/[^\s\n]+)/g)]
+          .slice(0, 5).map(m => ({ title: m[1].trim(), snippet: "", url: m[2].trim(), source: "Pesquisa web" }));
+        if (links.length) return links;
+        throw new Error("Formato de resultados não reconhecido");
+      }
+    ];
     try {
-      const response = await fetch(api + "/search?q=" + encodeURIComponent(q), {
-        signal: controller.signal,
-        headers: { Accept: "application/json" }
-      });
-      if (!response.ok) throw new Error("Pesquisa web HTTP " + response.status);
-      const data = await response.json();
-      if (!data?.ok || !Array.isArray(data.results) || !data.results.length) throw new Error("A pesquisa web não retornou resultados");
-      const results = data.results.slice(0, 6);
+      const settled = await Promise.allSettled(providers.map(provider => provider()));
+      const results = [];
+      const seen = new Set();
+      for (const item of settled) {
+        if (item.status !== "fulfilled") continue;
+        for (const result of item.value || []) {
+          const key = result.url;
+          if (!key || seen.has(key)) continue;
+          seen.add(key);
+          results.push(result);
+        }
+      }
+      if (!results.length) throw new Error("Nenhuma fonte respondeu com resultados legíveis");
       const pages = await Promise.all(results.slice(0, 3).map(async item => {
         try {
-          const read = await fetch(api + "/read?url=" + encodeURIComponent(item.url), { signal: controller.signal, headers: { Accept: "application/json" } });
-          if (!read.ok) return null;
-          const parsed = await read.json();
-          return parsed?.page ? "PÁGINA LIDA: " + parsed.page.title + "\nURL: " + parsed.page.url + "\nCONTEÚDO: " + parsed.page.content.slice(0, 4500) : null;
+          const reader = await fetch("https://r.jina.ai/http://" + item.url.replace(/^https?:\/\//, ""), {
+            signal: controller.signal, headers: { Accept: "text/plain" }
+          });
+          if (!reader.ok) return null;
+          const content = (await reader.text()).slice(0, 3500);
+          if (/captcha|unusual traffic|verify you are human/i.test(content.slice(0, 1800))) return null;
+          return "PÁGINA LIDA: " + item.title + "\nURL: " + item.url + "\nCONTEÚDO: " + content;
         } catch { return null; }
       }));
-      const resultLines = results.map((item, i) => (i + 1) + ". " + item.title + "\nFonte: " + item.source + "\nURL: " + item.url + "\nResumo: " + (item.snippet || "Sem resumo fornecido."));
-      const pageText = pages.filter(Boolean).join("\n\n");
-      return "PESQUISA NA WEB PARA: " + q + "\n\nRESULTADOS:\n" + resultLines.join("\n\n") +
-        (pageText ? "\n\nCONTEÚDO DAS PÁGINAS CONSULTADAS:\n" + pageText : "") +
-        "\n\nResponda diretamente em português brasileiro com base nas fontes. Inclua URLs relevantes e não copie páginas de bloqueio.";
+      const resultLines = results.slice(0, 12).map((item, i) =>
+        (i + 1) + ". " + item.title + "\nFonte: " + item.source + "\nURL: " + item.url + "\nResumo: " + (item.snippet || "Resumo não disponível.")
+      );
+      return "PESQUISA NA WEB PARA: " + q + "\n\nRESULTADOS DE FONTES INDEPENDENTES:\n" +
+        resultLines.join("\n\n") +
+        (pages.some(Boolean) ? "\n\nCONTEÚDO DE PÁGINAS CONSULTADAS:\n" + pages.filter(Boolean).join("\n\n") : "") +
+        "\n\nResponda em português brasileiro, sintetize em vez de copiar, diferencie fatos confirmados de informações incertas e cite os links relevantes. Nunca mostre HTML, CAPTCHA ou mensagens técnicas ao usuário.";
     } finally {
       clearTimeout(timer);
     }
