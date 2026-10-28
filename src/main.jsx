@@ -107,6 +107,9 @@ function App() {
         if (!response.ok) throw new Error("HTTP " + response.status);
         const resultText = (await response.text()).slice(0, 18000).trim();
         if (resultText.length < 120) throw new Error("Resposta de pesquisa muito curta");
+        if (/unusual traffic|detected unusual traffic|requiring captcha|captcha|not a robot|systems have detected/i.test(resultText)) {
+          throw new Error("O Google bloqueou esta consulta com CAPTCHA; página de bloqueio descartada.");
+        }
         return "RESULTADOS DO GOOGLE PARA: " + q + "\n" + resultText +
           "\n\nResponda à pergunta do usuário usando estes resultados. Extraia a resposta concreta, compare informações e preserve URLs úteis. Não responda apenas que não sabe.";
       } catch (error) {
@@ -119,8 +122,13 @@ function App() {
   }
 
   function simpleAnswer(question) {
-    const q = String(question || "").trim().replace(/^quanto\\s+(?:é|e)\\s+/i, "").replace(/[?!.]+$/g, "").replace(/,/g, ".");
-    const match = q.match(/^(-?\d+(?:\.\d+)?)\s*([+*/]|x|×|-)\s*(-?\d+(?:\.\d+)?)$/i);
+    let q = String(question || "").trim().toLocaleLowerCase("pt-BR")
+      .replace(/^quanto\\s+(?:é|e)\\s+/i, "")
+      .replace(/[?!.]+$/g, "").replace(/,/g, ".");
+    q = q.replace(/\\bmais\\b/g, "+").replace(/\\bmenos\\b/g, "-")
+      .replace(/\\bvezes\\b/g, "*").replace(/\\b(?:dividido por|dividido)\\b/g, "/")
+      .replace(/\\bpor\\b/g, "*").replace(/\\s+/g, "");
+    const match = q.match(/^(-?\\d+(?:\\.\\d+)?)([+*/]|x|×|-)(-?\\d+(?:\\.\\d+)?)$/i);
     if (!match) return null;
     const a = Number(match[1]), op = match[2].toLowerCase(), b = Number(match[3]);
     if (op === "+") return String(a + b);
