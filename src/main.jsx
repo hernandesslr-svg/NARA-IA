@@ -92,49 +92,34 @@ function App() {
   async function searchInternet(query) {
     const q = String(query || "").trim();
     if (!q) return "";
-    const encoded = encodeURIComponent(q);
-    const failures = [];
-
-    // 1) Google via leitor público. Descarta explicitamente páginas de CAPTCHA.
-    for (const url of [
-      "https://r.jina.ai/http://www.google.com/search?q=" + encoded + "&num=8",
-      "https://r.jina.ai/https://www.google.com/search?q=" + encoded + "&num=8"
-    ]) {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 12000);
-      try {
-        const response = await fetch(url, { signal: controller.signal, headers: { Accept: "text/plain" } });
-        if (!response.ok) throw new Error("HTTP " + response.status);
-        const body = (await response.text()).slice(0, 16000).trim();
-        if (body.length < 120 || /unusual traffic|detected unusual traffic|requiring captcha|captcha|not a robot|systems have detected/i.test(body)) {
-          throw new Error("Google retornou bloqueio/CAPTCHA ou conteúdo inválido");
-        }
-        return "RESULTADOS DA WEB (Google) PARA: " + q + "\n" + body +
-          "\n\nResponda diretamente com base nos resultados e preserve URLs úteis.";
-      } catch (e) {
-        failures.push(String(e?.message || e));
-      } finally {
-        clearTimeout(timer);
-      }
-    }
-
-    // 2) Pesquisa aberta da Wikipédia, acessível por CORS sem chave.
+    const api = "https://nara-web-search-production.up.railway.app";
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 18000);
     try {
-      const response = await fetch("https://pt.wikipedia.org/w/api.php?action=query&list=search&srsearch=" + encoded + "&format=json&origin=*&srlimit=6", { headers: { Accept: "application/json" } });
-      if (!response.ok) throw new Error("Wikipedia HTTP " + response.status);
+      const response = await fetch(api + "/search?q=" + encodeURIComponent(q), {
+        signal: controller.signal,
+        headers: { Accept: "application/json" }
+      });
+      if (!response.ok) throw new Error("Pesquisa web HTTP " + response.status);
       const data = await response.json();
-      const hits = (data?.query?.search || []).filter(x => x && x.title && x.snippet);
-      if (hits.length) {
-        const items = hits.map(x => "- " + x.title + ": " + x.snippet.replace(/<[^>]+>/g, "") + " (https://pt.wikipedia.org/wiki/" + encodeURIComponent(x.title.replace(/ /g, "_")) + ")").join("\n");
-        return "RESULTADOS DE PESQUISA NA WEB PARA: " + q + "\n" + items +
-          "\n\nResponda à pergunta usando estes resultados; se precisar de mais detalhes, abra as fontes e não invente fatos.";
-      }
-    } catch (e) {
-      failures.push(String(e?.message || e));
+      if (!data?.ok || !Array.isArray(data.results) || !data.results.length) throw new Error("A pesquisa web não retornou resultados");
+      const results = data.results.slice(0, 6);
+      const pages = await Promise.all(results.slice(0, 3).map(async item => {
+        try {
+          const read = await fetch(api + "/read?url=" + encodeURIComponent(item.url), { signal: controller.signal, headers: { Accept: "application/json" } });
+          if (!read.ok) return null;
+          const parsed = await read.json();
+          return parsed?.page ? "PÁGINA LIDA: " + parsed.page.title + "\nURL: " + parsed.page.url + "\nCONTEÚDO: " + parsed.page.content.slice(0, 4500) : null;
+        } catch { return null; }
+      }));
+      const resultLines = results.map((item, i) => (i + 1) + ". " + item.title + "\nFonte: " + item.source + "\nURL: " + item.url + "\nResumo: " + (item.snippet || "Sem resumo fornecido."));
+      const pageText = pages.filter(Boolean).join("\n\n");
+      return "PESQUISA NA WEB PARA: " + q + "\n\nRESULTADOS:\n" + resultLines.join("\n\n") +
+        (pageText ? "\n\nCONTEÚDO DAS PÁGINAS CONSULTADAS:\n" + pageText : "") +
+        "\n\nResponda diretamente em português brasileiro com base nas fontes. Inclua URLs relevantes e não copie páginas de bloqueio.";
+    } finally {
+      clearTimeout(timer);
     }
-
-    // 3) Não entrega páginas de bloqueio como se fossem respostas.
-    throw new Error("As fontes públicas não responderam nesta tentativa. " + failures.join(" | "));
   }
 
   function simpleAnswer(question) {
