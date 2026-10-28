@@ -93,32 +93,48 @@ function App() {
     const q = String(query || "").trim();
     if (!q) return "";
     const encoded = encodeURIComponent(q);
-    // Tenta mais de uma forma pública de leitura dos resultados do Google, sem chave.
-    const urls = [
+    const failures = [];
+
+    // 1) Google via leitor público. Descarta explicitamente páginas de CAPTCHA.
+    for (const url of [
       "https://r.jina.ai/http://www.google.com/search?q=" + encoded + "&num=8",
       "https://r.jina.ai/https://www.google.com/search?q=" + encoded + "&num=8"
-    ];
-    let lastError;
-    for (const url of urls) {
+    ]) {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 15000);
+      const timer = setTimeout(() => controller.abort(), 12000);
       try {
         const response = await fetch(url, { signal: controller.signal, headers: { Accept: "text/plain" } });
         if (!response.ok) throw new Error("HTTP " + response.status);
-        const resultText = (await response.text()).slice(0, 18000).trim();
-        if (resultText.length < 120) throw new Error("Resposta de pesquisa muito curta");
-        if (/unusual traffic|detected unusual traffic|requiring captcha|captcha|not a robot|systems have detected/i.test(resultText)) {
-          throw new Error("O Google bloqueou esta consulta com CAPTCHA; página de bloqueio descartada.");
+        const body = (await response.text()).slice(0, 16000).trim();
+        if (body.length < 120 || /unusual traffic|detected unusual traffic|requiring captcha|captcha|not a robot|systems have detected/i.test(body)) {
+          throw new Error("Google retornou bloqueio/CAPTCHA ou conteúdo inválido");
         }
-        return "RESULTADOS DO GOOGLE PARA: " + q + "\n" + resultText +
-          "\n\nResponda à pergunta do usuário usando estes resultados. Extraia a resposta concreta, compare informações e preserve URLs úteis. Não responda apenas que não sabe.";
-      } catch (error) {
-        lastError = error;
+        return "RESULTADOS DA WEB (Google) PARA: " + q + "\n" + body +
+          "\n\nResponda diretamente com base nos resultados e preserve URLs úteis.";
+      } catch (e) {
+        failures.push(String(e?.message || e));
       } finally {
         clearTimeout(timer);
       }
     }
-    throw new Error("Não foi possível acessar a pesquisa pública do Google: " + String(lastError?.message || lastError || "falha de rede"));
+
+    // 2) Pesquisa aberta da Wikipédia, acessível por CORS sem chave.
+    try {
+      const response = await fetch("https://pt.wikipedia.org/w/api.php?action=query&list=search&srsearch=" + encoded + "&format=json&origin=*&srlimit=6", { headers: { Accept: "application/json" } });
+      if (!response.ok) throw new Error("Wikipedia HTTP " + response.status);
+      const data = await response.json();
+      const hits = (data?.query?.search || []).filter(x => x && x.title && x.snippet);
+      if (hits.length) {
+        const items = hits.map(x => "- " + x.title + ": " + x.snippet.replace(/<[^>]+>/g, "") + " (https://pt.wikipedia.org/wiki/" + encodeURIComponent(x.title.replace(/ /g, "_")) + ")").join("\n");
+        return "RESULTADOS DE PESQUISA NA WEB PARA: " + q + "\n" + items +
+          "\n\nResponda à pergunta usando estes resultados; se precisar de mais detalhes, abra as fontes e não invente fatos.";
+      }
+    } catch (e) {
+      failures.push(String(e?.message || e));
+    }
+
+    // 3) Não entrega páginas de bloqueio como se fossem respostas.
+    throw new Error("As fontes públicas não responderam nesta tentativa. " + failures.join(" | "));
   }
 
   function simpleAnswer(question) {
